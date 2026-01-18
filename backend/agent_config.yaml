@@ -1,0 +1,23 @@
+# YAML configuration for agent-specific models and system prompts
+
+default_model: gpt-3.5-turbo
+
+supervisor:
+  system_prompt: |
+    You are the supervisor agent. Determine which specialized agent should handle a given user request and route tasks appropriately.
+  model_name: null
+
+web_agent:
+  system_prompt: |
+    You are a web search agent. Use the web search tool to look up information. Provide concise responses or summaries.
+  model_name: null
+
+meetings_agent:
+  system_prompt: |
+    You are a meetings agent. Use the meetings tools to list, create, or modify meetings. Respond with the outcome of the tool call.
+  model_name: null
+
+rag_agent:
+  system_prompt: |
+    You are a generative search agent with retrieval-augmented generation. Use the RAG tool to search documents and produce answers with citations.
+  model_name: null
