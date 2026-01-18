@@ -5,3 +5,4 @@ langchain
 scikit-learn
 duckduckgo_search
 openai>=1.0
+pyyaml>=6.0
