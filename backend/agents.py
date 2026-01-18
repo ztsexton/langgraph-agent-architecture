@@ -24,9 +24,18 @@ from typing import TypedDict, Dict, Literal, Optional
 
 from langgraph.graph import StateGraph, START, END
 
-from .meetings import MeetingsManager
-from .rag import RAGSearch
-from .web_search import search as web_search
+# Import tool functions from the dedicated tools package.  These provide
+# clean interfaces for each domain and encapsulate shared state.  Note that
+# the meetings manager and rag search are initialised within their modules.
+from .tools.web import search_web
+from .tools.meetings import (
+    list_meetings,
+    create_meeting,
+    edit_meeting_agenda,
+    edit_meeting_notes,
+)
+from .tools.rag import answer_question
+from .tools.llm import ask_llm, get_llm
 
 
 class AgentState(TypedDict):
@@ -42,11 +51,8 @@ class AgentState(TypedDict):
     output: str
 
 
-# Instantiate shared resources at module level so that they persist across
-# requests.  The meetings manager stores created meetings in memory.  The
-# retrieval component loads a tiny document corpus for demonstration.
-_meetings_manager = MeetingsManager()
-_rag_search = RAGSearch()
+# Shared resources are managed by the tools modules.  There is no need to
+# instantiate any state here.
 
 
 def supervisor(state: AgentState) -> AgentState:
@@ -81,23 +87,41 @@ def route(state: AgentState) -> Literal["web_agent", "meetings_agent", "rag_agen
 
 
 def web_agent(state: AgentState) -> AgentState:
-    """Perform a web search and populate the output key with formatted results."""
+    """Perform a web search and populate the output key with formatted results.
+    """
+    """Perform a web search and optionally summarise using an LLM."""
     query = state.get("input", "")
-    results = web_search(query, max_results=3)
-    # Build a simple summary string
+    results = search_web(query, max_results=3)
+    # If no results found return immediately
     if not results:
-        summary = "No search results found."
-    else:
-        lines = []
-        for idx, res in enumerate(results, start=1):
-            title = res.get("title") or "Untitled"
-            body = res.get("body") or ""
-            href = res.get("href") or ""
-            line = f"{idx}. {title} – {body[:120]}"
-            if href:
-                line += f" ({href})"
-            lines.append(line)
-        summary = "\n".join(lines)
+        return {"output": "No search results found."}
+    # Format the results for display or LLM summarisation
+    lines = []
+    for idx, res in enumerate(results, start=1):
+        title = res.get("title") or "Untitled"
+        body = res.get("body") or ""
+        href = res.get("href") or ""
+        line = f"{idx}. {title} – {body[:120]}"
+        if href:
+            line += f" ({href})"
+        lines.append(line)
+    summary = "\n".join(lines)
+    # Attempt to use LLM to summarise the search results into a single answer
+    llm = get_llm()
+    if llm:
+        prompt = (
+            "You are a helpful assistant.  A user searched for the following query:\n\n"
+            f"{query}\n\n"
+            "Here are the top search results:\n\n"
+            f"{summary}\n\n"
+            "Provide a concise summary or answer to the user's query based on these results."
+        )
+        try:
+            answer = ask_llm(prompt)
+            return {"output": answer}
+        except Exception:
+            # Fall back to raw summary if LLM fails
+            pass
     return {"output": summary}
 
 
@@ -111,7 +135,7 @@ def meetings_agent(state: AgentState) -> AgentState:
     text = state.get("input", "").lower()
     # List meetings
     if "list" in text and "meeting" in text:
-        meetings = _meetings_manager.list_meetings()
+        meetings = list_meetings()
         if not meetings:
             return {"output": "There are no meetings scheduled."}
         lines = [
@@ -119,30 +143,24 @@ def meetings_agent(state: AgentState) -> AgentState:
             for m in meetings
         ]
         return {"output": "\n".join(lines)}
-    # Create a meeting – expect 'create meeting TITLE on DATE with AGENDA'
+    # Create a meeting – expect 'create meeting TITLE on DATE agenda AGENDA'
     if "create" in text and "meeting" in text:
-        # Try to extract title, date and agenda using simple heuristics
-        # e.g. "create meeting Team Sync on 2026-02-20 agenda Discuss progress"
         title = "Untitled meeting"
         date = "2026-01-17"
         agenda = ""
-        # split on 'agenda'
         if "agenda" in text:
             parts = text.split("agenda", 1)
             agenda = parts[1].strip()
             text_before_agenda = parts[0]
         else:
             text_before_agenda = text
-        # attempt to find 'on DATE' pattern
         tokens = text_before_agenda.split()
         if "on" in tokens:
             idx = tokens.index("on")
             if idx + 1 < len(tokens):
                 date = tokens[idx + 1]
-        # everything after 'meeting' up until 'on' is title
         try:
             meeting_idx = tokens.index("meeting")
-            # Title tokens are between meeting_idx+1 and idx
             if "on" in tokens:
                 on_idx = tokens.index("on")
                 title_tokens = tokens[meeting_idx + 1 : on_idx]
@@ -152,11 +170,10 @@ def meetings_agent(state: AgentState) -> AgentState:
                 title = " ".join(title_tokens).title()
         except ValueError:
             pass
-        meeting = _meetings_manager.create_meeting(title=title, date=date, agenda=agenda)
+        meeting = create_meeting(title=title, date=date, agenda=agenda)
         return {"output": f"Created meeting {meeting.id}: {meeting.title} on {meeting.date}."}
     # Edit agenda
     if "edit" in text and "agenda" in text:
-        # expects 'edit meeting ID agenda NEW_AGENDA'
         tokens = text.split()
         meeting_id = None
         for token in tokens:
@@ -166,7 +183,7 @@ def meetings_agent(state: AgentState) -> AgentState:
         new_agenda = text.split("agenda", 1)[1].strip()
         if meeting_id is None:
             return {"output": "Please specify the meeting ID to edit."}
-        meeting = _meetings_manager.edit_meeting_agenda(meeting_id, new_agenda)
+        meeting = edit_meeting_agenda(meeting_id, new_agenda)
         if meeting is None:
             return {"output": f"Meeting {meeting_id} not found."}
         return {"output": f"Updated agenda for meeting {meeting.id}."}
@@ -181,7 +198,7 @@ def meetings_agent(state: AgentState) -> AgentState:
         new_notes = text.split("notes", 1)[1].strip()
         if meeting_id is None:
             return {"output": "Please specify the meeting ID to edit."}
-        meeting = _meetings_manager.edit_meeting_notes(meeting_id, new_notes)
+        meeting = edit_meeting_notes(meeting_id, new_notes)
         if meeting is None:
             return {"output": f"Meeting {meeting_id} not found."}
         return {"output": f"Updated notes for meeting {meeting.id}."}
@@ -198,7 +215,7 @@ def meetings_agent(state: AgentState) -> AgentState:
 def rag_agent(state: AgentState) -> AgentState:
     """Answer a query using retrieval augmented search."""
     query = state.get("input", "")
-    result = _rag_search.search(query)
+    result = answer_question(query)
     content = result["content"]
     citation = result["citation"]
     return {"output": f"{content} (Citation: {citation})"}
