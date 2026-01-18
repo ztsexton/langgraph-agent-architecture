@@ -2,13 +2,13 @@
 FastAPI server providing a streaming API for the LangGraph multi‑agent system.
 
 This application exposes a single endpoint, ``/stream``, that accepts a query
-parameter ``message``.  It compiles the agent graph on startup and uses
+parameter ``message``. It compiles the agent graph on startup and uses
 LangGraph’s ``stream`` method to emit incremental state updates as the graph
-executes.  The responses are transmitted as Server‑Sent Events (SSE), making
+executes. The responses are transmitted as Server‑Sent Events (SSE), making
 them compatible with modern event‑streaming clients and the AG‑UI protocol.
 
 It also serves a simple static frontend under the ``/ui`` prefix, allowing you
-to interact with the agents from a browser without any build tooling.  To start
+to interact with the agents from a browser without any build tooling. To start
 the server run ``uvicorn agent_project.backend.main:app --reload`` from the
 project root after installing dependencies.
 """
@@ -26,8 +26,20 @@ from fastapi.staticfiles import StaticFiles
 from .agents import _compiled_agent_graph as agent_graph
 from .agents import AgentState
 
+import logging
+
 
 app = FastAPI(title="LangGraph Multi‑Agent Backend")
+
+# Configure a simple application-wide logger.  The log level can be set via
+# the LOG_LEVEL environment variable (default: INFO).  Logs are emitted to
+# standard output, which can be captured by the hosting environment.
+_log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=_log_level,
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+)
+logger = logging.getLogger("agent_backend.main")
 
 
 @app.get("/stream")
@@ -49,11 +61,16 @@ async def stream(message: str) -> StreamingResponse:
     # Prepare the initial state; leave output blank – the worker will populate it
     initial_state: AgentState = {"input": message, "output": ""}
 
+    # Log the incoming message
+    logger.info(f"Received stream request: {message}")
+
     def generate_events() -> AsyncIterator[str]:
         # Run the graph synchronously.  LangGraph will emit incremental
         # updates to the state on each step.  We choose the "updates" stream
         # mode so that only the changes are sent rather than the entire state.
         for chunk in agent_graph.stream(initial_state, stream_mode="updates"):
+            # Log each update emitted by the graph
+            logger.info(f"Graph update: {chunk}")
             # Each ``chunk`` is a dict keyed by node name with updated values.
             yield f"data: {json.dumps(chunk)}\n\n"
 
