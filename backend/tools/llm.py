@@ -39,6 +39,45 @@ logger = logging.getLogger("agent_backend.llm")
 _cached_llms: Dict[str, Any] = {}
 
 
+def _init_azure_chat_openai(
+    *,
+    azure_endpoint: str,
+    azure_deployment: str,
+    api_version: str,
+    temperature: float,
+    api_key: Optional[str] = None,
+    azure_ad_token_provider: Optional[Any] = None,
+) -> Any:
+    """Create an AzureChatOpenAI with best-effort compatibility across versions.
+
+    The `langchain_openai` package has changed parameter names over time.
+    We try the newer names first, then fall back.
+    """
+
+    # Newer langchain_openai (common): azure_deployment + api_version
+    try:
+        return AzureChatOpenAI(
+            azure_endpoint=azure_endpoint,
+            azure_deployment=azure_deployment,
+            api_version=api_version,
+            temperature=temperature,
+            openai_api_key=api_key,
+            azure_ad_token_provider=azure_ad_token_provider,
+        )
+    except TypeError:
+        pass
+
+    # Older: azure_deployment_name + openai_api_version
+    return AzureChatOpenAI(
+        azure_endpoint=azure_endpoint,
+        azure_deployment_name=azure_deployment,
+        openai_api_version=api_version,
+        temperature=temperature,
+        openai_api_key=api_key,
+        azure_ad_token_provider=azure_ad_token_provider,
+    )
+
+
 def get_llm(model_name: Optional[str] = None) -> Any:
     """Return a lazily constructed chat model instance.
 
@@ -92,11 +131,12 @@ def get_llm(model_name: Optional[str] = None) -> Any:
             token = credential.get_token(scope)
             return token.token
 
-        llm = AzureChatOpenAI(
+        llm = _init_azure_chat_openai(
             azure_endpoint=azure_base,
-            azure_deployment_name=azure_deployment,
-            openai_api_version=azure_version,
+            azure_deployment=azure_deployment,
+            api_version=azure_version,
             azure_ad_token_provider=token_provider,
+            api_key=None,
             temperature=0,
         )
         _cached_llms[key] = llm
@@ -105,11 +145,12 @@ def get_llm(model_name: Optional[str] = None) -> Any:
     azure_key = os.getenv("AZURE_OPENAI_API_KEY")
     if azure_key and azure_base and azure_version and azure_deployment:
         logger.info(f"Initialising Azure OpenAI model (API key auth, deployment={azure_deployment})")
-        llm = AzureChatOpenAI(
+        llm = _init_azure_chat_openai(
             azure_endpoint=azure_base,
-            azure_deployment_name=azure_deployment,
-            openai_api_version=azure_version,
-            openai_api_key=azure_key,
+            azure_deployment=azure_deployment,
+            api_version=azure_version,
+            api_key=azure_key,
+            azure_ad_token_provider=None,
             temperature=0,
         )
         _cached_llms[key] = llm
@@ -120,9 +161,16 @@ def get_llm(model_name: Optional[str] = None) -> Any:
     if openai_key:
         kwargs = {"openai_api_key": openai_key, "temperature": 0}
         if model_name:
-            kwargs["model_name"] = model_name
+            # `langchain_openai` uses `model`, older uses `model_name`.
+            kwargs["model"] = model_name
         logger.info("Initialising standard OpenAI model")
-        llm = ChatOpenAI(**kwargs)
+        try:
+            llm = ChatOpenAI(**kwargs)
+        except TypeError:
+            # Compatibility fallback
+            if "model" in kwargs:
+                kwargs["model_name"] = kwargs.pop("model")
+            llm = ChatOpenAI(**kwargs)
         _cached_llms[key] = llm
         return llm
 

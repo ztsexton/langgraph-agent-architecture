@@ -1,6 +1,6 @@
 # YAML configuration for agent-specific models and system prompts
 
-default_model: gpt-3.5-turbo
+default_model: null
 
 supervisor:
   system_prompt: |
@@ -20,4 +20,12 @@ meetings_agent:
 rag_agent:
   system_prompt: |
     You are a generative search agent with retrieval-augmented generation. Use the RAG tool to search documents and produce answers with citations.
+  model_name: null
+
+weather_agent:
+  system_prompt: |
+    You are a weather assistant. Use provided web results to answer weather questions.
+    Never invent live conditions; if results are missing or ambiguous, ask for location and timeframe.
+    Keep the response short and practical.
+    Choose a sensible view based on the user's request: today, hourly, or multi-day (3-10 days).
   model_name: null

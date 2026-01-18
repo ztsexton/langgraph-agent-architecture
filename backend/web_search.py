@@ -10,11 +10,15 @@ URL (href) when available.
 
 from __future__ import annotations
 
+import logging
 from typing import List, Dict
 
 
+logger = logging.getLogger("agent_backend.web_search")
+
+
 def search(query: str, max_results: int = 5) -> List[Dict[str, str]]:
-    """Search the web using DuckDuckGo or return a mock response.
+    """Search the web using DuckDuckGo.
 
     Args:
         query: Query string to search for.
@@ -24,15 +28,16 @@ def search(query: str, max_results: int = 5) -> List[Dict[str, str]]:
         List of dictionaries with keys ``title``, ``body`` and ``href``.
     """
     try:
-        from duckduckgo_search import DDGS  # type: ignore
+        # `duckduckgo_search` has been renamed to `ddgs`.
+        # Prefer `ddgs` when available, but keep compatibility.
+        try:
+            from ddgs import DDGS  # type: ignore
+        except Exception:  # pragma: no cover
+            from duckduckgo_search import DDGS  # type: ignore
 
-        # Use the new async API if available; otherwise fall back to simple
-        # synchronous usage.  We wrap in a context manager to ensure clean
-        # shutdown of underlying HTTP session.
         results: List[Dict[str, str]] = []
         with DDGS() as ddgs:
             for result in ddgs.text(query, safesearch="moderate", max_results=max_results):
-                # Each ``result`` dict has keys 'title', 'body', 'href'
                 results.append(
                     {
                         "title": result.get("title", ""),
@@ -41,20 +46,10 @@ def search(query: str, max_results: int = 5) -> List[Dict[str, str]]:
                     }
                 )
         return results
-    except Exception:
-        # If we cannot import the package or the search fails (e.g. no internet
-        # connectivity) return a mock result.  This fallback ensures the
-        # web agent remains functional in constrained environments.
-        return [
-            {
-                "title": "Web search unavailable",
-                "body": (
-                    "The DuckDuckGo search API is not installed or network access is disabled. "
-                    "This is a mock response."
-                ),
-                "href": "",
-            }
-        ]
+    except Exception as e:
+        # No mock/stub content: callers should decide how to handle an empty result set.
+        logger.warning("Web search failed; returning no results", exc_info=e)
+        return []
 
 
 __all__ = ["search"]

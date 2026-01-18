@@ -5,6 +5,8 @@ langchain
 langchain-openai
 scikit-learn
 duckduckgo_search
+ddgs
+httpx>=0.27
 openai>=1.0
 azure-identity>=1.16.0
 pyyaml>=6.0
