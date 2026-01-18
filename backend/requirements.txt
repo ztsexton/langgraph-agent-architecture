@@ -2,7 +2,9 @@ fastapi>=0.110
 uvicorn[standard]>=0.25
 langgraph
 langchain
+langchain-openai
 scikit-learn
 duckduckgo_search
 openai>=1.0
+azure-identity>=1.16.0
 pyyaml>=6.0

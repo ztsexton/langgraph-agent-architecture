@@ -1,38 +1,63 @@
-#!/bin/bash
-# Setup a Python virtual environment and install dependencies. Also writes a .env file with dummy values if missing.
+#!/usr/bin/env bash
 
-set -e
+# Simple bootstrap script to create a Python virtual environment, install
+# dependencies and provide instructions for running the multi‑agent project.
 
-# Determine project root directory (location of this script)
-ROOT_DIR="$(cd "$(dirname "$0")"; pwd)"
-cd "$ROOT_DIR"
+set -euo pipefail
 
-echo "Creating virtual environment in $ROOT_DIR/.venv..."
-python -m venv "$ROOT_DIR/.venv"
+PROJECT_ROOT="$(dirname "$0")"
+
+echo "Creating virtual environment in $PROJECT_ROOT/.venv..."
+python3 -m venv "$PROJECT_ROOT/.venv"
 
 echo "Activating virtual environment..."
-. "$ROOT_DIR/.venv/bin/activate"
+source "$PROJECT_ROOT/.venv/bin/activate"
 
 echo "Upgrading pip..."
-pip install --upgrade pip
+pip3 install --upgrade pip
 
-echo "Installing dependencies from agent_project/backend/requirements.txt..."
-pip install -r "$ROOT_DIR/agent_project/backend/requirements.txt"
+echo "Installing dependencies..."
+# Determine the correct requirements file.  If ``backend/requirements.txt`` exists
+# alongside this script use it; otherwise fall back to
+# ``agent_project/backend/requirements.txt``.  This supports both directory
+# layouts when pulling the project.
+REQ_FILE="$PROJECT_ROOT/agent_project/backend/requirements.txt"
+if [ -f "$PROJECT_ROOT/backend/requirements.txt" ]; then
+  REQ_FILE="$PROJECT_ROOT/backend/requirements.txt"
+fi
+pip3 install -r "$REQ_FILE"
 
-# Create .env file with dummy environment variables if it doesn't exist
-ENV_FILE="$ROOT_DIR/.env"
+# Create a .env file with dummy values if it does not exist.  This makes it
+# easier to run the application locally without having to supply environment
+# variables manually.  Real deployments should replace these dummy values with
+# valid keys.
+ENV_FILE="$PROJECT_ROOT/.env"
 if [ ! -f "$ENV_FILE" ]; then
-cat > "$ENV_FILE" <<'EOF'
-# Dummy environment variables for development. Replace with real keys.
-OPENAI_API_KEY=dummy-openai-key
-AZURE_OPENAI_API_KEY=dummy-azure-key
-AZURE_OPENAI_API_BASE=https://dummy-api.openai.azure.com/
+  echo "Creating .env file with dummy environment variables..."
+  cat > "$ENV_FILE" <<'EOF'
+# Dummy environment variables for local development.
+# Replace these with real values for production.
+OPENAI_API_KEY=changeme
+AZURE_OPENAI_API_KEY=changeme
+AZURE_OPENAI_API_BASE=https://your-endpoint.openai.azure.com
 AZURE_OPENAI_API_VERSION=2023-05-15
-AZURE_OPENAI_DEPLOYMENT_NAME=dummy-deployment
+AZURE_OPENAI_DEPLOYMENT_NAME=gpt-35-turbo
+
+# Alternative auth method: Azure Entra ID (AAD) Client Credentials
+# If these are set, the backend will acquire a bearer token and use that
+# instead of AZURE_OPENAI_API_KEY.
+AZURE_TENANT_ID=changeme
+AZURE_CLIENT_ID=changeme
+AZURE_CLIENT_SECRET=changeme
 LOG_LEVEL=INFO
 EOF
-echo "Created .env file with dummy values."
+  echo ".env file created with dummy values at $ENV_FILE"
+else
+  echo ".env file already exists at $ENV_FILE; leaving it unchanged."
 fi
 
 echo "Setup complete."
-echo "Activate the virtual environment with 'source $ROOT_DIR/.venv/bin/activate' and start the server using ./run_server.sh"
+echo "To activate the environment run:"
+echo "source $PROJECT_ROOT/.venv/bin/activate"
+echo "Then start the server with:"
+echo "bash run_server.sh"
