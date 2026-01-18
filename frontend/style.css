@@ -1,0 +1,64 @@
+/*
+ * Basic styling for the multi‑agent chat demo.  This CSS keeps the layout
+ * lightweight and readable without introducing any external dependencies.  It
+ * centres the chat container, styles messages and the input field, and
+ * provides simple scroll behaviour for long conversations.
+ */
+
+body {
+  font-family: sans-serif;
+  margin: 0;
+  padding: 2rem;
+  background-color: #f7f7f7;
+}
+
+h1 {
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.chat-box {
+  width: 80%;
+  max-width: 600px;
+  margin: 0 auto;
+  height: 400px;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 4px;
+  padding: 1rem;
+  overflow-y: auto;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.chat-form {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.chat-form input {
+  flex: 1;
+  padding: 0.5rem;
+  font-size: 1rem;
+  border: 1px solid #ccc;
+  border-radius: 4px 0 0 4px;
+  outline: none;
+}
+
+.chat-form button {
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+  border: 1px solid #ccc;
+  background: #007bff;
+  color: #fff;
+  border-radius: 0 4px 4px 0;
+  cursor: pointer;
+}
+
+.message {
+  margin-bottom: 0.5rem;
+}
+
+.message strong {
+  color: #007bff;
+}
