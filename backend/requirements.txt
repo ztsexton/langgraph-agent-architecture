@@ -1,0 +1,6 @@
+fastapi>=0.110
+uvicorn[standard]>=0.25
+langgraph
+langchain
+scikit-learn
+duckduckgo_search
