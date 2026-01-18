@@ -1,9 +1,9 @@
-# This package aggregates tool functions used by the multi‑agent system.
+# This package aggregates tool functions used by the multi-agent system.
 #
 # The modules in this directory expose standalone functions that can be passed
-# to LangGraph or other orchestration frameworks as "tools".  They
+# to LangGraph or other orchestration frameworks as "tools". They
 # encapsulate distinct behaviours such as web search, meeting management and
-# retrieval‑augmented generation (RAG) with optional LLM integration.  Keeping
+# retrieval-augmented generation (RAG) with optional LLM integration. Keeping
 # them in a dedicated package makes it easy to reason about the available
 # operations and encourages a clean separation of concerns.
 
@@ -15,6 +15,7 @@ from .meetings import (
     edit_meeting_notes,
 )
 from .rag import answer_question
+from .llm import ask_llm, get_llm
 
 __all__ = [
     "search_web",
@@ -23,4 +24,6 @@ __all__ = [
     "edit_meeting_agenda",
     "edit_meeting_notes",
     "answer_question",
+    "ask_llm",
+    "get_llm",
 ]
