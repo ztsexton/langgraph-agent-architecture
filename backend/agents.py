@@ -42,6 +42,8 @@ from .tools.weather import (
     build_daily_rows,
 )
 
+from .tools.langfuse_tracing import start_span, end_span
+
 
 class AgentState(TypedDict, total=False):
     """Schema for the graph’s state.
@@ -240,6 +242,12 @@ def route(state: AgentState) -> Literal["web_agent", "meetings_agent", "rag_agen
     """
     user_text = state.get("input", "")
 
+    route_span = start_span(
+        name="agent:route",
+        input={"input": user_text},
+        metadata={"kind": "routing"},
+    )
+
     # Prefer LLM routing when available.
     supervisor_settings = get_agent_settings("supervisor")
     llm = get_llm(supervisor_settings.model_name)
@@ -262,6 +270,7 @@ def route(state: AgentState) -> Literal["web_agent", "meetings_agent", "rag_agen
             )
             token = (decision or "").strip().split()[0].strip().lower()
             if token in ("web_agent", "meetings_agent", "rag_agent", "weather_agent"):
+                end_span(route_span, output={"decision": token, "mode": "llm"})
                 return token  # type: ignore[return-value]
         except Exception:
             # Fall back to keyword matching.
@@ -274,18 +283,24 @@ def route(state: AgentState) -> Literal["web_agent", "meetings_agent", "rag_agen
     weather_keywords = ["weather", "forecast", "temperature", "rain", "snow", "wind", "humidity", "aqi", "air quality"]
     search_keywords = ["search", "web", "internet", "look up"]
     if any(k in text for k in weather_keywords):
+        end_span(route_span, output={"decision": "weather_agent", "mode": "keyword"})
         return "weather_agent"
     if any(k in text for k in meeting_keywords):
+        end_span(route_span, output={"decision": "meetings_agent", "mode": "keyword"})
         return "meetings_agent"
     if any(k in text for k in rag_keywords):
+        end_span(route_span, output={"decision": "rag_agent", "mode": "keyword"})
         return "rag_agent"
     if any(k in text for k in search_keywords):
+        end_span(route_span, output={"decision": "web_agent", "mode": "keyword"})
         return "web_agent"
+    end_span(route_span, output={"decision": "web_agent", "mode": "default"})
     return "web_agent"
 
 
 def weather_agent(state: AgentState) -> AgentState:
     """Answer weather questions with structured weather cards (A2UI)."""
+    _span = start_span(name="agent:weather_agent", input={"state": state}, metadata={"kind": "agent"})
     query = state.get("input", "")
     weather_settings = get_agent_settings("weather_agent")
 
@@ -497,16 +512,19 @@ def weather_agent(state: AgentState) -> AgentState:
         "Precip chance": _fmt_num(today.get("precip_chance_pct"), "%"),
         "Wind": _fmt_num(today.get("wind_kph"), " km/h"),
     }
-    return {
+    out = {
         "output": narrative,
         "a2ui": _a2ui_weather_card(title="Weather", subtitle=subtitle, kv=kv),
     }
+    end_span(_span, output=out)
+    return out
 
 
 def web_agent(state: AgentState) -> AgentState:
     """Perform a web search and populate the output key with formatted results.
     """
     """Perform a web search and summarise using an LLM when configured."""
+    _span = start_span(name="agent:web_agent", input={"state": state}, metadata={"kind": "agent"})
     query = state.get("input", "")
     results = search_web(query, max_results=3)
     web_settings = get_agent_settings("web_agent")
@@ -545,13 +563,19 @@ def web_agent(state: AgentState) -> AgentState:
                 model_name=web_settings.model_name,
                 system_prompt=web_settings.system_prompt,
             )
-            return {"output": answer}
+            out = {"output": answer}
+            end_span(_span, output=out)
+            return out
         except Exception:
             pass
     # Non-LLM fallback: return raw results or a friendly message.
     if not results:
-        return {"output": "No search results found."}
-    return {"output": summary}
+        out = {"output": "No search results found."}
+        end_span(_span, output=out)
+        return out
+    out = {"output": summary}
+    end_span(_span, output=out)
+    return out
 
 
 def meetings_agent(state: AgentState) -> AgentState:
@@ -561,6 +585,7 @@ def meetings_agent(state: AgentState) -> AgentState:
     which operation to perform.  In a real system you would likely parse
     structured commands or rely on an LLM to extract parameters.
     """
+    _span = start_span(name="agent:meetings_agent", input={"state": state}, metadata={"kind": "agent"})
     meetings_settings = get_agent_settings("meetings_agent")
     text = state.get("input", "").lower()
     # List meetings
@@ -568,7 +593,9 @@ def meetings_agent(state: AgentState) -> AgentState:
         meetings = list_meetings()
         if not meetings:
             text = "There are no meetings scheduled."
-            return {"output": text, "a2ui": _a2ui_text("Meetings", text)}
+            out = {"output": text, "a2ui": _a2ui_text("Meetings", text)}
+            end_span(_span, output=out)
+            return out
         lines = [
             f"{m.id}. {m.title} on {m.date} – agenda: {m.agenda}; notes: {m.notes or 'None'}"
             for m in meetings
@@ -587,7 +614,9 @@ def meetings_agent(state: AgentState) -> AgentState:
                 }
             except Exception:
                 pass
-        return {"output": raw, "a2ui": _a2ui_text("Meetings", raw)}
+        out = {"output": raw, "a2ui": _a2ui_text("Meetings", raw)}
+        end_span(_span, output=out)
+        return out
     # Create a meeting – expect 'create meeting TITLE on DATE agenda AGENDA'
     if "create" in text and "meeting" in text:
         title = "Untitled meeting"
@@ -620,16 +649,20 @@ def meetings_agent(state: AgentState) -> AgentState:
         llm = get_llm(meetings_settings.model_name)
         if llm:
             try:
-                return {
+                out = {
                     "output": ask_llm(
                         f"User requested to create a meeting. Result: {raw}",
                         model_name=meetings_settings.model_name,
                         system_prompt=meetings_settings.system_prompt,
                     )
                 }
+                end_span(_span, output=out)
+                return out
             except Exception:
                 pass
-        return {"output": raw, "a2ui": _a2ui_text("Meetings", raw)}
+        out = {"output": raw, "a2ui": _a2ui_text("Meetings", raw)}
+        end_span(_span, output=out)
+        return out
     # Edit agenda
     if "edit" in text and "agenda" in text:
         tokens = text.split()
@@ -640,24 +673,32 @@ def meetings_agent(state: AgentState) -> AgentState:
                 break
         new_agenda = text.split("agenda", 1)[1].strip()
         if meeting_id is None:
-            return {"output": "Please specify the meeting ID to edit."}
+            out = {"output": "Please specify the meeting ID to edit."}
+            end_span(_span, output=out)
+            return out
         meeting = edit_meeting_agenda(meeting_id, new_agenda)
         if meeting is None:
-            return {"output": f"Meeting {meeting_id} not found."}
+            out = {"output": f"Meeting {meeting_id} not found."}
+            end_span(_span, output=out)
+            return out
         raw = f"Updated agenda for meeting {meeting.id}."
         llm = get_llm(meetings_settings.model_name)
         if llm:
             try:
-                return {
+                out = {
                     "output": ask_llm(
                         f"User requested to update a meeting agenda. Result: {raw}",
                         model_name=meetings_settings.model_name,
                         system_prompt=meetings_settings.system_prompt,
                     )
                 }
+                end_span(_span, output=out)
+                return out
             except Exception:
                 pass
-        return {"output": raw, "a2ui": _a2ui_text("Meetings", raw)}
+        out = {"output": raw, "a2ui": _a2ui_text("Meetings", raw)}
+        end_span(_span, output=out)
+        return out
     # Edit notes
     if "edit" in text and "notes" in text:
         tokens = text.split()
@@ -668,26 +709,34 @@ def meetings_agent(state: AgentState) -> AgentState:
                 break
         new_notes = text.split("notes", 1)[1].strip()
         if meeting_id is None:
-            return {"output": "Please specify the meeting ID to edit."}
+            out = {"output": "Please specify the meeting ID to edit."}
+            end_span(_span, output=out)
+            return out
         meeting = edit_meeting_notes(meeting_id, new_notes)
         if meeting is None:
-            return {"output": f"Meeting {meeting_id} not found."}
+            out = {"output": f"Meeting {meeting_id} not found."}
+            end_span(_span, output=out)
+            return out
         raw = f"Updated notes for meeting {meeting.id}."
         llm = get_llm(meetings_settings.model_name)
         if llm:
             try:
-                return {
+                out = {
                     "output": ask_llm(
                         f"User requested to update meeting notes. Result: {raw}",
                         model_name=meetings_settings.model_name,
                         system_prompt=meetings_settings.system_prompt,
                     )
                 }
+                end_span(_span, output=out)
+                return out
             except Exception:
                 pass
-        return {"output": raw, "a2ui": _a2ui_text("Meetings", raw)}
+        out = {"output": raw, "a2ui": _a2ui_text("Meetings", raw)}
+        end_span(_span, output=out)
+        return out
     # Default response
-    return {
+    out = {
         "output": (
             "I can manage meetings. Try commands like 'list meetings', 'create meeting "
             "Team Sync on 2026-02-20 agenda Discuss progress', 'edit meeting 1 agenda New agenda' or "
@@ -698,16 +747,21 @@ def meetings_agent(state: AgentState) -> AgentState:
             "I can manage meetings. Try: list meetings; create meeting Team Sync on 2026-02-20 agenda ...; edit meeting 1 agenda ...; edit meeting 1 notes ...",
         ),
     }
+    end_span(_span, output=out)
+    return out
 
 
 def rag_agent(state: AgentState) -> AgentState:
     """Answer a query using retrieval augmented search."""
+    _span = start_span(name="agent:rag_agent", input={"state": state}, metadata={"kind": "agent"})
     query = state.get("input", "")
     result = answer_question(query)
     content = result["content"]
     citation = result["citation"]
     text = f"{content} (Citation: {citation})"
-    return {"output": text, "a2ui": _a2ui_text("RAG", text)}
+    out = {"output": text, "a2ui": _a2ui_text("RAG", text)}
+    end_span(_span, output=out)
+    return out
 
 
 def get_agent_graph() -> "StateGraph[AgentState]":

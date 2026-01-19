@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 # Allow running as `python backend/smoke_test.py` from the repo root.
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
-  sys.path.insert(0, PROJECT_ROOT)
+    sys.path.insert(0, PROJECT_ROOT)
 
 from backend.main import app  # noqa: E402
 
@@ -34,6 +34,12 @@ def main() -> None:
     r = client.get("/stream", params={"message": "hello"})
     assert r.status_code == 200, r.text
     assert "data:" in r.text or r.text.strip() != "", "Expected SSE response body"
+
+    # If Langfuse is configured, the request should still succeed and emit a trace.
+    # (We don't assert trace existence here since it depends on external services.)
+    if os.getenv("LANGFUSE_HOST") and os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"):
+        r = client.get("/stream", params={"message": "search langfuse observability"})
+        assert r.status_code == 200, r.text
 
     print("smoke_test.py: PASS")
 

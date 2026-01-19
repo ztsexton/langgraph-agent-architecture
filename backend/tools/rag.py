@@ -12,11 +12,13 @@ from typing import Dict, Any
 from ..rag import RAGSearch
 from .llm import ask_llm
 from .agent_config import get_agent_settings
+from .langfuse_tracing import traced_tool
 
 # Shared search index across calls
 _rag_search = RAGSearch()
 
 
+@traced_tool("rag.answer")
 def answer_question(query: str) -> Dict[str, Any]:
     """Answer a question using retrieval and optional LLM generation.
 

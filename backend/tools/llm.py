@@ -33,6 +33,8 @@ except ImportError:  # pragma: no cover
 # Message classes live in langchain-core in recent versions.
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
+from .langfuse_tracing import get_current_trace
+
 logger = logging.getLogger("agent_backend.llm")
 
 # Cache multiple LLM instances keyed by model name to avoid reinitialising
@@ -227,12 +229,56 @@ def ask_llm(
     # Append the current user prompt as the last message
     messages.append(HumanMessage(content=prompt))
     logger.info(f"LLM request (model={model_name}): {prompt}")
+
+    # Langfuse tracing (optional): record each LLM invocation as a generation.
+    trace = get_current_trace()
+    generation = None
+    if trace is not None:
+        # Best-effort serialization of LangChain messages for inspection.
+        try:
+            serialized_messages = [
+                {
+                    "role": ("system" if isinstance(m, SystemMessage) else "assistant" if isinstance(m, AIMessage) else "user"),
+                    "content": getattr(m, "content", str(m)),
+                }
+                for m in messages
+            ]
+        except Exception:
+            serialized_messages = [str(m) for m in messages]
+
+        try:
+            generation = trace.generation(
+                name="llm:ask_llm",
+                model=model_name or "__default__",
+                input={
+                    "messages": serialized_messages,
+                    "system_prompt": system_prompt,
+                    "history": history,
+                },
+                metadata={
+                    "kind": "llm",
+                    "model_name": model_name,
+                },
+            )
+        except Exception:
+            generation = None
     try:
         # LangChain v1 chat models use the Runnable interface.
         response = llm.invoke(messages)
         answer = response.content if hasattr(response, "content") else str(response)
         logger.info(f"LLM response: {answer}")
+
+        if generation is not None:
+            try:
+                generation.end(output=answer)
+            except Exception:
+                pass
         return answer
     except Exception:
         logger.exception("Error during LLM request")
+        if generation is not None:
+            try:
+                generation.end(level="ERROR")
+            except Exception:
+                pass
         raise

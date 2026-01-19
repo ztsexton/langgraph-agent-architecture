@@ -39,6 +39,7 @@ def edit_meeting_agenda(meeting_id: int, new_agenda: str) -> Optional[Meeting]:
     """Edit the agenda of an existing meeting.
 
     Args:
+    from .langfuse_tracing import traced_tool
         meeting_id: ID of the meeting.
         new_agenda: New agenda string.
 
