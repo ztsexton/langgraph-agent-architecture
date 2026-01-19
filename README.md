@@ -19,7 +19,7 @@ updates to the client, improving responsiveness【998679072524577†L90-L103】.
 
 ## Structure
 
-```
+```text
 agent_project/
 |
 ├── backend/             # FastAPI server and agent definitions
@@ -68,3 +68,40 @@ Feel free to extend the `meetings.py` and `rag.py` modules or swap the
 heuristic routing in `agents.py` with a large language model.  The
 foundations laid out here should make it straightforward to build more
 sophisticated agent ecosystems.
+
+## Observability with Langfuse (self-hosted)
+
+This repo includes optional Langfuse tracing so you can inspect:
+
+* LLM inputs/outputs (prompts, message history, responses)
+* Tool calls (web search, meetings ops, RAG, etc.)
+* Agent routing decisions (which agent ran and why)
+
+### Start Langfuse locally (Docker)
+
+Use the provided compose file to start a self-hosted Langfuse and Postgres:
+
+```bash
+docker compose -f docker-compose.langfuse.yml up -d
+```
+
+Then open `http://localhost:3000`.
+
+* Default port: **3000**
+* The compose file bootstraps an initial admin user (see `docker-compose.langfuse.yml` environment variables).
+
+### Configure the backend to send traces
+
+Set these environment variables for the backend process:
+
+* `LANGFUSE_HOST` (example: `http://localhost:3000`)
+* `LANGFUSE_PUBLIC_KEY`
+* `LANGFUSE_SECRET_KEY`
+
+Note: Langfuse tracing currently requires **Python < 3.14** in this repo because the Langfuse SDK's pydantic-v1 compatibility layer is not yet compatible with Python 3.14+. If you're on Python 3.14, recreate the venv with Python 3.12/3.13.
+
+With those set, calling `/stream` will create a trace and attach:
+
+* `llm:ask_llm` generations
+* `tool:*` spans
+* `agent:*` spans (including routing)

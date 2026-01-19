@@ -11,7 +11,10 @@ from typing import List, Dict
 
 from ..web_search import search as _search
 
+from .langfuse_tracing import traced_tool
 
+
+@traced_tool("web.search")
 def search_web(query: str, max_results: int = 3) -> List[Dict[str, str]]:
     """Search the web for a query.
 

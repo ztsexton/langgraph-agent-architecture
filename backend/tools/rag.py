@@ -11,11 +11,14 @@ from typing import Dict, Any
 
 from ..rag import RAGSearch
 from .llm import ask_llm
+from .agent_config import get_agent_settings
+from .langfuse_tracing import traced_tool
 
 # Shared search index across calls
 _rag_search = RAGSearch()
 
 
+@traced_tool("rag.answer")
 def answer_question(query: str) -> Dict[str, Any]:
     """Answer a question using retrieval and optional LLM generation.
 
@@ -38,7 +41,12 @@ def answer_question(query: str) -> Dict[str, Any]:
         f"Question: {query}\n\nAnswer in a concise and direct manner."
     )
     try:
-        answer = ask_llm(prompt)
+        rag_settings = get_agent_settings("rag_agent")
+        answer = ask_llm(
+            prompt,
+            model_name=rag_settings.model_name,
+            system_prompt=rag_settings.system_prompt,
+        )
         return {"content": answer, "citation": citation}
     except Exception:
         # If the LLM is not configured or fails, return the raw document

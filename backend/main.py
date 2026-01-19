@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import AsyncIterator
+from typing import Iterator
 
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -25,6 +25,8 @@ from fastapi.staticfiles import StaticFiles
 
 from .agents import _compiled_agent_graph as agent_graph
 from .agents import AgentState
+
+from .tools.langfuse_tracing import start_trace, end_trace
 
 import logging
 
@@ -40,6 +42,15 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
 )
 logger = logging.getLogger("agent_backend.main")
+
+
+@app.middleware("http")
+async def no_cache_ui_assets(request: Request, call_next):
+    response = await call_next(request)
+    # Avoid stale frontend assets during development.
+    if request.url.path == "/ui" or request.url.path.startswith("/ui/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/stream")
@@ -58,21 +69,35 @@ async def stream(message: str) -> StreamingResponse:
         A streaming HTTP response with ``text/event-stream`` media type.
     """
 
+    # Start a Langfuse trace (optional) so all LLM/tool spans are linked.
+    trace = start_trace(
+        name="/stream",
+        input={"message": message},
+        metadata={"endpoint": "/stream"},
+    )
+
     # Prepare the initial state; leave output blank – the worker will populate it
     initial_state: AgentState = {"input": message, "output": ""}
 
     # Log the incoming message
     logger.info(f"Received stream request: {message}")
 
-    def generate_events() -> AsyncIterator[str]:
-        # Run the graph synchronously.  LangGraph will emit incremental
-        # updates to the state on each step.  We choose the "updates" stream
-        # mode so that only the changes are sent rather than the entire state.
-        for chunk in agent_graph.stream(initial_state, stream_mode="updates"):
-            # Log each update emitted by the graph
-            logger.info(f"Graph update: {chunk}")
-            # Each ``chunk`` is a dict keyed by node name with updated values.
-            yield f"data: {json.dumps(chunk)}\n\n"
+    def generate_events() -> Iterator[str]:
+        try:
+            # Run the graph synchronously.  LangGraph will emit incremental
+            # updates to the state on each step.  We choose the "updates" stream
+            # mode so that only the changes are sent rather than the entire state.
+            last_chunk = None
+            for chunk in agent_graph.stream(initial_state, stream_mode="updates"):
+                last_chunk = chunk
+                # Log each update emitted by the graph
+                logger.info(f"Graph update: {chunk}")
+                # Each ``chunk`` is a dict keyed by node name with updated values.
+                yield f"data: {json.dumps(chunk)}\n\n"
+            end_trace(trace, output={"last_chunk": last_chunk})
+        except Exception as e:
+            end_trace(trace, error=str(e))
+            raise
 
     return StreamingResponse(generate_events(), media_type="text/event-stream")
 

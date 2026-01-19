@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: langfuse-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${LANGFUSE_POSTGRES_USER:-langfuse}
+      POSTGRES_PASSWORD: ${LANGFUSE_POSTGRES_PASSWORD:-langfuse}
+      POSTGRES_DB: ${LANGFUSE_POSTGRES_DB:-langfuse}
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: langfuse
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      # --- Core ---
+      DATABASE_URL: postgresql://${LANGFUSE_POSTGRES_USER:-langfuse}:${LANGFUSE_POSTGRES_PASSWORD:-langfuse}@postgres:5432/${LANGFUSE_POSTGRES_DB:-langfuse}
+      NEXTAUTH_URL: ${LANGFUSE_NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-please-change-me}
+      SALT: ${LANGFUSE_SALT:-please-change-me}
+
+      # Disable public signups by default (recommended for local/dev).
+      SIGN_UP_DISABLED: ${LANGFUSE_SIGN_UP_DISABLED:-true}
+
+      # Initial admin user to bootstrap the instance.
+      # If you want interactive signup instead, set SIGN_UP_DISABLED=false.
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-admin@example.com}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-admin-admin-admin}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-Admin}
+
+      # Optional telemetry (keep false for self-host).
+      TELEMETRY_ENABLED: ${LANGFUSE_TELEMETRY_ENABLED:-false}
+
+    ports:
+      - "3000:3000"
+
+volumes:
+  langfuse_postgres_data:
