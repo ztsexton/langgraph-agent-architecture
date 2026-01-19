@@ -7,8 +7,28 @@ set -euo pipefail
 
 PROJECT_ROOT="$(dirname "$0")"
 
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  echo "Python executable not found: $PYTHON_BIN" >&2
+  echo "Set PYTHON_BIN to a valid interpreter, e.g. PYTHON_BIN=python3.12" >&2
+  exit 1
+fi
+
+# Langfuse's current SDK has issues on Python 3.14+ (pydantic v1 compatibility).
+# Fail fast so users don't end up with 'no traces' due to a silent import failure.
+PY_VER_STR="$($PYTHON_BIN -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+PY_MAJOR="${PY_VER_STR%%.*}"
+PY_MINOR="${PY_VER_STR##*.}"
+if [ "$PY_MAJOR" -gt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -ge 14 ]; }; then
+  echo "Detected Python $PY_VER_STR via $PYTHON_BIN." >&2
+  echo "This project currently requires Python < 3.14 for Langfuse tracing." >&2
+  echo "Install Python 3.12/3.13 and re-run with: PYTHON_BIN=python3.12 ./setup_env.sh" >&2
+  exit 1
+fi
+
 echo "Creating virtual environment in $PROJECT_ROOT/.venv..."
-python3 -m venv "$PROJECT_ROOT/.venv"
+"$PYTHON_BIN" -m venv "$PROJECT_ROOT/.venv"
 
 echo "Activating virtual environment..."
 source "$PROJECT_ROOT/.venv/bin/activate"

@@ -98,6 +98,8 @@ Set these environment variables for the backend process:
 * `LANGFUSE_PUBLIC_KEY`
 * `LANGFUSE_SECRET_KEY`
 
+Note: Langfuse tracing currently requires **Python < 3.14** in this repo because the Langfuse SDK's pydantic-v1 compatibility layer is not yet compatible with Python 3.14+. If you're on Python 3.14, recreate the venv with Python 3.12/3.13.
+
 With those set, calling `/stream` will create a trace and attach:
 
 * `llm:ask_llm` generations

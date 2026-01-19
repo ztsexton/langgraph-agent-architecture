@@ -44,6 +44,15 @@ logging.basicConfig(
 logger = logging.getLogger("agent_backend.main")
 
 
+@app.middleware("http")
+async def no_cache_ui_assets(request: Request, call_next):
+    response = await call_next(request)
+    # Avoid stale frontend assets during development.
+    if request.url.path == "/ui" or request.url.path.startswith("/ui/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.get("/stream")
 async def stream(message: str) -> StreamingResponse:
     """Stream graph updates as Server‑Sent Events for a given user message.

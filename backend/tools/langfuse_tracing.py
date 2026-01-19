@@ -16,19 +16,25 @@ We store the current trace/span in context variables so nested calls (agent -> t
 
 from __future__ import annotations
 
+import logging
 import os
 from contextvars import ContextVar
 from typing import Any, Callable, Optional, TypeVar, cast
 
 try:
     from langfuse import Langfuse  # type: ignore
-except Exception:  # pragma: no cover
+except Exception as e:  # pragma: no cover
     Langfuse = None  # type: ignore
+    _langfuse_import_error = e
+else:  # pragma: no cover
+    _langfuse_import_error = None
 
 
 _T = TypeVar("_T")
 
 _langfuse_client: Optional[Any] = None
+
+logger = logging.getLogger("agent_backend.langfuse")
 
 _current_trace: ContextVar[Optional[Any]] = ContextVar("langfuse_current_trace", default=None)
 _current_span: ContextVar[Optional[Any]] = ContextVar("langfuse_current_span", default=None)
@@ -44,7 +50,18 @@ def get_langfuse() -> Optional[Any]:
     if _langfuse_client is not None:
         return _langfuse_client
 
-    if not _enabled() or Langfuse is None:
+    if not _enabled():
+        _langfuse_client = None
+        return None
+
+    if Langfuse is None:
+        # Langfuse is configured via env vars, but the SDK couldn't import.
+        # This commonly happens when the active Python version isn't supported.
+        msg = "Langfuse env vars are set, but Langfuse SDK could not be imported; tracing will be disabled."
+        if _langfuse_import_error is not None:
+            logger.warning(f"{msg} Import error: {_langfuse_import_error}")
+        else:
+            logger.warning(msg)
         _langfuse_client = None
         return None
 
@@ -125,7 +142,21 @@ def end_trace(trace: Optional[Any], *, output: Optional[Any] = None, error: Opti
         trace.update(level="ERROR", status_message=error)
     if output is not None:
         trace.update(output=output)
-    trace.end()
+    # Langfuse SDK v2 uses a stateful trace client without `.end()`.
+    # Newer SDK versions may support `.end()`. Handle both.
+    if hasattr(trace, "end"):
+        try:
+            trace.end()
+        except Exception:
+            logger.exception("Failed to end Langfuse trace")
+
+    # Best-effort flush so traces appear quickly in the UI.
+    try:
+        client = get_langfuse()
+        if client is not None and hasattr(client, "flush"):
+            client.flush()
+    except Exception:
+        logger.exception("Failed to flush Langfuse client")
     _current_trace.set(None)
     _current_span.set(None)
 

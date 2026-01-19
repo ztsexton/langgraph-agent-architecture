@@ -38,6 +38,38 @@ fi
 # script runs with `set -u`, so referencing an unset var would error).
 export PYTHONPATH="$PROJECT_ROOT:${PYTHONPATH:-}"
 
+# --- Startup banner (diagnostics) ---
+echo "Python: $(python -V 2>&1)"
+
+if [ -n "${LANGFUSE_HOST:-}" ] && [ -n "${LANGFUSE_PUBLIC_KEY:-}" ] && [ -n "${LANGFUSE_SECRET_KEY:-}" ]; then
+  echo "Langfuse: env configured (host=${LANGFUSE_HOST})"
+  set +e
+  python - <<'PY'
+import os
+try:
+    import langfuse
+    from langfuse import Langfuse
+except Exception as e:
+    print(f"Langfuse: SDK import failed ({e}); tracing disabled")
+    raise SystemExit(0)
+
+version = getattr(langfuse, "__version__", "unknown")
+try:
+    lf = Langfuse(
+        public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
+        secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
+        host=os.getenv("LANGFUSE_HOST"),
+    )
+    has_trace = hasattr(lf, "trace")
+    print(f"Langfuse: SDK v{version} loaded (client_has_trace={has_trace})")
+except Exception as e:
+    print(f"Langfuse: SDK v{version} init failed ({e}); tracing may be disabled")
+PY
+  set -e
+else
+  echo "Langfuse: not configured (set LANGFUSE_HOST/LANGFUSE_PUBLIC_KEY/LANGFUSE_SECRET_KEY)"
+fi
+
 # Change to project root to ensure relative paths (e.g. agent_project) are
 # resolved correctly by uvicorn and Python.
 cd "$PROJECT_ROOT"
@@ -51,8 +83,21 @@ if [ -f "$PROJECT_ROOT/agent_project/backend/main.py" ]; then
   APP_MODULE="agent_project.backend.main:app"
 fi
 
+HOST="${HOST:-0.0.0.0}"
+PORT="${PORT:-8000}"
+
+# Fail fast if the port is already taken.
+if command -v lsof >/dev/null 2>&1; then
+  if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "Port $PORT is already in use." >&2
+    echo "Tip: stop the existing server process, or run with a different port:" >&2
+    echo "  PORT=8001 ./run_server.sh" >&2
+    exit 1
+  fi
+fi
+
 # Use Uvicorn to serve the FastAPI app.  ``--host`` and ``--port`` are
 # explicitly specified to listen on all interfaces; ``--reload`` enables
 # auto‑reload for development convenience.  In production you may remove
 # the ``--reload`` flag.
-exec uvicorn "$APP_MODULE" --host 0.0.0.0 --port 8000 --reload
+exec uvicorn "$APP_MODULE" --host "$HOST" --port "$PORT" --reload

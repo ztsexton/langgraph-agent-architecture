@@ -220,6 +220,15 @@ function appendA2UIMessage(sender, a2ui, text) {
   chat.scrollTop = chat.scrollHeight;
 }
 
+function appendDebugMessage(text) {
+  const div = document.createElement("div");
+  div.classList.add("message");
+  div.classList.add("message-debug");
+  div.textContent = text;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
 // Append a message element to the chat history
 function appendMessage(sender, text) {
   const div = document.createElement("div");
@@ -236,6 +245,11 @@ form.addEventListener("submit", (e) => {
   if (!message) return;
   appendMessage("User", message);
   input.value = "";
+
+  // Per-request routing debug state.
+  let sawSupervisor = false;
+  let routedAgent = null;
+
   // Open an SSE connection for this message.  A new EventSource is used
   // per request so that each query completes independently.
   const evtSource = new EventSource(`/stream?message=${encodeURIComponent(message)}`);
@@ -245,6 +259,15 @@ form.addEventListener("submit", (e) => {
       // Each event contains a single key representing the node name
       const nodeName = Object.keys(data)[0];
       const update = data[nodeName];
+
+      // Debug: infer routing choice as the first non-supervisor node.
+      if (nodeName === "supervisor") {
+        sawSupervisor = true;
+      } else if (!routedAgent && sawSupervisor) {
+        routedAgent = nodeName;
+        appendDebugMessage(`Supervisor routed to: ${routedAgent}`);
+      }
+
       // If we have a rich UI payload (e.g. weather card), show chat text AND the UI.
       // If the A2UI payload is text-only, render only A2UI to avoid duplicates.
       if (update && update.a2ui) {
